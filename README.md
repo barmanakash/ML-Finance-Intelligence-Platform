@@ -432,5 +432,4 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 - **NOT** a replacement for professional financial planning
 
 Anomaly detection flags *unusual* transactions — it does **not** confirm fraud. All predictions and insights are statistical estimates and should not be the sole basis for financial decisions.
-#   M L - F i n a n c e - I n t e l l i g e n c e - P l a t f o r m  
- 
+#
