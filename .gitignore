@@ -43,3 +43,6 @@ mlruns/
 # Keep files
 !models/.gitkeep
 !data/sample/.gitkeep
+
+# Next.js generated file
+frontend/next-env.d.ts
