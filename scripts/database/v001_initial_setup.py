@@ -1,5 +1,6 @@
-import os
 import logging
+import os
+
 from pymongo import MongoClient
 
 # Configure logging
@@ -39,16 +40,10 @@ def run_initial_setup():
     
     # Import and run create_indexes
     try:
-        from .create_indexes import create_indexes
+        from scripts.create_indexes import create_indexes
+
         create_indexes()
-    except ImportError:
-        # Fallback if imported directly from scripts
-        import sys
-        sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-        try:
-            from create_indexes import create_indexes
-            create_indexes()
-        except ImportError as e:
+    except ImportError as e:
             logger.error(f"Could not import create_indexes: {e}")
 
     logger.info("v001_initial_setup complete.")

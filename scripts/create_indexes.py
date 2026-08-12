@@ -1,6 +1,7 @@
-import os
 import logging
-from pymongo import MongoClient, ASCENDING, DESCENDING
+import os
+
+from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
 # Configure logging
@@ -64,8 +65,7 @@ def create_indexes():
             logger.info(f"Created index '{name}' on '{coll_name}': {description}")
         except OperationFailure as e:
             logger.warning(f"Index creation failed on '{coll_name}' with keys {keys}: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error creating index on '{coll_name}': {e}")
+        
 
     logger.info("Index creation process finished.")
 

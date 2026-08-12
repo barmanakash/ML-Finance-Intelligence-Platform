@@ -23,7 +23,11 @@ def verify_password(password: str, hashed: str) -> bool:
 def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
     """Issue a signed JWT for `subject` (the user's id)."""
     settings = get_settings()
-    minutes = expires_minutes if expires_minutes is not None else settings.jwt_access_token_expire_minutes
+    minutes = (
+    expires_minutes
+    if expires_minutes is not None
+    else settings.jwt_access_token_expire_minutes
+)
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": subject,

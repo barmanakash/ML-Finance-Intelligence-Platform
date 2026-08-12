@@ -23,7 +23,11 @@ def test_parse_csv_amount_sign_inference():
 
 
 def test_parse_csv_explicit_type_column_overrides_sign():
-    csv_bytes = b"date,description,amount,type\n2026-01-01,Purchase,438,debit\n2026-01-02,Salary,65000,credit\n"
+    csv_bytes = (
+        b"date,description,amount,type\n"
+        b"2026-01-01,Purchase,438,debit\n"
+        b"2026-01-02,Salary,65000,credit\n"
+    )
     result = parse_csv(csv_bytes)
     assert result.rows[0].transaction_type == "debit"
     assert result.rows[1].transaction_type == "credit"
