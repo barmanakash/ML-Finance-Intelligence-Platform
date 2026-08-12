@@ -24,7 +24,7 @@ Built with modern engineering practices, this project goes far beyond a tutorial
 > Status reflects the roadmap below — unchecked items are designed but not yet implemented.
 
 - ✅ User authentication (JWT + Argon2id)
-- ⬜ CSV transaction import with flexible schema mapping
+- ✅ CSV transaction import with flexible schema mapping
 - ⬜ ML-powered transaction categorization (TF-IDF + LogisticRegression)
 - ⬜ Anomaly detection with explainable reasons (Isolation Forest)
 - ⬜ Recurring payment detection
@@ -275,8 +275,8 @@ Interactive Swagger UI: **http://localhost:8000/docs**
 |---|---|---|
 | `/api/v1/auth` | Registration, login, logout | 🟢 Implemented |
 | `/api/v1/users` | User profile management (`/me`) | 🟢 Implemented |
-| `/api/v1/transactions` | Transaction CRUD + search | ⚪ Planned |
-| `/api/v1/imports` | CSV upload & import history | ⚪ Planned |
+| `/api/v1/transactions` | Transaction list + get by id (filtering by category/type/import) | 🟢 Implemented |
+| `/api/v1/imports` | CSV upload & import history | 🟢 Implemented |
 | `/api/v1/categories` | Category management | ⚪ Planned |
 | `/api/v1/anomalies` | Anomaly detection results | ⚪ Planned |
 | `/api/v1/recurring` | Recurring payment detection | ⚪ Planned |
@@ -298,8 +298,8 @@ curl http://localhost:8000/health
 | Collection | Purpose | Status |
 |---|---|---|
 | `users` | User accounts with hashed passwords | 🟢 In use |
-| `transactions` | Normalized financial transactions | ⚪ Planned |
-| `transaction_imports` | Import metadata & audit trail | ⚪ Planned |
+| `transactions` | Normalized financial transactions | 🟢 In use |
+| `transaction_imports` | Import metadata & audit trail | 🟢 In use |
 | `categories` | System + user-custom categories | ⚪ Planned |
 | `anomalies` | Detected anomaly records with explanations | ⚪ Planned |
 | `recurring_transactions` | Detected recurring payments | ⚪ Planned |
@@ -335,7 +335,7 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 |---|---|---|
 | **Unit** | Password hashing, JWT issue/verify/expiry/tamper-detection | 🟢 16 tests passing |
 | **API** | Register, login, duplicate email, wrong password, `/me`, logout, auth guarding | 🟢 Covered |
-| **Integration** | CSV → validation → MongoDB → ML → API end-to-end | ⚪ Planned |
+| **Integration** | CSV upload → parse → validate → MongoDB → list/query API, end-to-end via TestClient | 🟢 21 tests passing |
 | **ML** | Model loading, prediction schema, no NaN outputs, feature compatibility | ⚪ Planned |
 
 ---
@@ -357,7 +357,7 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 - CORS configuration
 - Safe MongoDB query construction (parameterized via PyMongo, no string-built queries)
 - Environment-based secrets (never hardcoded)
-- File upload size limits and type validation — ⚪ planned alongside CSV import (Phase 3)
+- File upload size limits (`MAX_UPLOAD_SIZE_MB`) and `.csv`-only type validation on the imports endpoint
 
 **What the app does NOT do:**
 - ❌ Never stores bank credentials, UPI PINs, or CVVs
@@ -372,7 +372,7 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 |---|---|---|
 | 1 | Architecture + Repository Setup | 🟢 Complete |
 | 2 | Authentication + Database | 🟢 Complete |
-| 3 | Transaction Import | ⚪ Planned |
+| 3 | Transaction Import | 🟢 Complete |
 | 4 | Categorization ML | ⚪ Planned |
 | 5 | Anomaly Detection | ⚪ Planned |
 | 6 | Recurring Payments | ⚪ Planned |
@@ -390,6 +390,16 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 - `GET /api/v1/users/me` (protected route)
 - Repository layer (`UserRepository`) — no raw queries in routes
 - 16 passing tests (5 unit, 11 API) covering registration, login, duplicate handling, token expiry/tampering, and auth-guarded routes
+
+**Phase 3 deliverables completed:**
+- Flexible CSV column mapper (`app/utils/csv_parser.py`) — recognizes common synonyms for date/description/amount/debit/credit/type/merchant/reference across different bank export formats, without assuming a fixed schema
+- Row-level validation: a single malformed row (bad date, unparseable amount) is captured as an error and skipped — it never aborts the whole import
+- Whole-file duplicate detection via SHA-256 file hash, checked against the `(user_id, file_hash)` unique index on `transaction_imports`
+- `POST /api/v1/imports` (multipart CSV upload, `.csv`-only, size-limited via `MAX_UPLOAD_SIZE_MB`), `GET /api/v1/imports`, `GET /api/v1/imports/{id}`
+- `GET /api/v1/transactions` (paginated, filterable by category/type/import id), `GET /api/v1/transactions/{id}` — both scoped to the authenticated user
+- `TransactionRepository` / `TransactionImportRepository` — no raw queries in routes
+- 21 new passing tests covering: successful import, duplicate rejection, non-CSV rejection, partial imports with row errors, debit/credit-column and amount+sign-inferred formats, missing required columns, per-user data isolation, and auth guarding
+- **Not yet implemented:** transaction categorization is a placeholder (`category: "Uncategorized"` on every row) — real ML categorization is Phase 4
 
 ---
 
