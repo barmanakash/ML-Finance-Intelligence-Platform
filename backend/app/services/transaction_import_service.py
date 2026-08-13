@@ -13,6 +13,7 @@ from app.models.transaction import TransactionDocument
 from app.models.transaction_import import ImportRowError, TransactionImportDocument
 from app.repositories.transaction_import_repository import TransactionImportRepository
 from app.repositories.transaction_repository import TransactionRepository
+from app.services.categorization_service import categorization_service
 from app.utils.csv_parser import ParsedRow, compute_file_hash, parse_csv
 
 MAX_STORED_ERRORS = 50
@@ -68,6 +69,8 @@ class TransactionImportService:
         saved_import = self._import_repo.create(import_record)
 
         if parse_result.rows:
+            descriptions = [row.description for row in parse_result.rows]
+            predictions = categorization_service.categorize_batch(descriptions)
             transactions = [
                 TransactionDocument(
                     user_id=user_id,
@@ -77,11 +80,13 @@ class TransactionImportService:
                     amount=row.amount,
                     currency=row.currency,
                     transaction_type=row.transaction_type,
+                    category=prediction.category,
+                    category_confidence=prediction.confidence,
                     import_id=saved_import.id,
                     reference=row.reference,
                     content_hash=self._content_hash(user_id, row),
                 )
-                for row in parse_result.rows
+                for row, prediction in zip(parse_result.rows, predictions)
             ]
             self._transaction_repo.bulk_create(transactions)
 

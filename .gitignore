@@ -37,8 +37,11 @@ Thumbs.db
 # ML
 models/*.pkl
 models/*.joblib
+models/**/*.pkl
+models/**/*.joblib
 data/raw/*
 mlruns/
+mlflow.db
 
 # Keep files
 !models/.gitkeep

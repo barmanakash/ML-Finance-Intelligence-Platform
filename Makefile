@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format type-check db-init seed train evaluate mlflow docker-up docker-down docker-logs clean
+.PHONY: help install dev test test-ml lint format type-check db-init seed generate-data train evaluate mlflow docker-up docker-down docker-logs clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -11,6 +11,9 @@ dev: ## Run backend in development mode
 
 test: ## Run tests
 	cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
+
+test-ml: ## Run ML package tests (requires ml/requirements.txt + pytest installed)
+	pytest ml/tests/ -v
 
 lint: ## Run linter
 	cd backend && ruff check .
@@ -27,10 +30,13 @@ db-init: ## Initialize database indexes
 seed: ## Seed demo data
 	python scripts/seed.py
 
+generate-data: ## Generate the synthetic categorization training dataset
+	python -m ml.datasets.generate_categorization_dataset
+
 train: ## Train ML models
 	python -m ml.categorization.train
 
-evaluate: ## Evaluate ML models
+evaluate: ## Evaluate the active ML model
 	python -m ml.categorization.evaluate
 
 mlflow: ## Open MLflow UI

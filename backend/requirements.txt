@@ -8,3 +8,10 @@ pyjwt>=2.9,<3.0
 pwdlib[argon2]>=0.2,<0.3
 python-multipart>=0.0.9
 prometheus-client>=0.21,<0.22
+
+# Inference-only deps for loading the ml/ package's trained categorization
+# model (joblib pickle + the sklearn Pipeline/TfidfVectorizer classes it
+# deserializes into). Training-only deps (pandas, mlflow) stay in ml/requirements.txt
+# — the backend never trains, only serves.
+scikit-learn>=1.5,<1.6
+joblib>=1.4,<2.0
