@@ -25,15 +25,15 @@ Built with modern engineering practices, this project goes far beyond a tutorial
 
 - ✅ User authentication (JWT + Argon2id)
 - ✅ CSV transaction import with flexible schema mapping
-- ⬜ ML-powered transaction categorization (TF-IDF + LogisticRegression)
+- ✅ ML-powered transaction categorization (TF-IDF + LogisticRegression/LinearSVC/MultinomialNB, best-of-3 by macro-F1)
 - ⬜ Anomaly detection with explainable reasons (Isolation Forest)
 - ⬜ Recurring payment detection
 - ⬜ Expense forecasting (7/30/90 days)
 - ⬜ Financial insights engine (deterministic, no LLM)
 - ✅ RESTful API with OpenAPI/Swagger documentation
 - ⬜ Modern React dashboard with dark theme
-- ⬜ MLflow experiment tracking & model registry
-- ⬜ Model versioning with promotion rules
+- ✅ MLflow experiment tracking & model registry
+- ✅ Model versioning with promotion rules
 - ✅ Prometheus metrics + health/readiness checks
 - ⬜ Grafana dashboards
 - ✅ Docker Compose single-command deployment
@@ -282,7 +282,7 @@ Interactive Swagger UI: **http://localhost:8000/docs**
 | `/api/v1/recurring` | Recurring payment detection | ⚪ Planned |
 | `/api/v1/forecasts` | Expense forecasting | ⚪ Planned |
 | `/api/v1/insights` | Financial insights | ⚪ Planned |
-| `/api/v1/ml` | ML model management | ⚪ Planned |
+| `/api/v1/ml` | Model registry status + on-demand categorization | 🟢 Implemented |
 
 ### Example: Health Check
 
@@ -304,7 +304,7 @@ curl http://localhost:8000/health
 | `anomalies` | Detected anomaly records with explanations | ⚪ Planned |
 | `recurring_transactions` | Detected recurring payments | ⚪ Planned |
 | `expense_forecasts` | Forecasted spending by period | ⚪ Planned |
-| `ml_models` | Model registry metadata | ⚪ Planned |
+| `ml_models` | Model registry metadata | 🟢 In use (file-based registry under `models/`, mirrored to MLflow) |
 | `insights` | Generated financial insights | ⚪ Planned |
 | `audit_logs` | Security/action audit trail (TTL: 90 days) | ⚪ Planned |
 
@@ -314,10 +314,10 @@ All collections have purpose-designed indexes defined in `scripts/create_indexes
 
 ## 🔬 MLOps
 
-- **MLflow Tracking**: Not yet wired up — planned for Phase 4 (categorization) onward.
-- **Model Versioning**: `transaction-classifier:v1`, `anomaly-detector:v1`, etc. — planned.
-- **Promotion Rules**: New model promoted only if `new_F1 >= current_F1` — planned.
-- **Reproducibility**: Random seeds, dataset hashes, feature configs all recorded — planned.
+- **MLflow Tracking**: `ml/categorization/train.py` logs every candidate model (params, metrics) to MLflow — defaults to a local SQLite-backed store (`mlflow.db`) so training works without Docker running; in Docker, `MLFLOW_TRACKING_URI` points at the real `mlflow` service.
+- **Model Registry**: File-based registry under `models/<model_name>/<version>/` (model.joblib + metadata.json), with an `active.txt` pointer the backend reads to know which version to serve. Exposed via `GET /api/v1/ml/models`.
+- **Promotion Rules**: A new version is only promoted to "active" if its macro-F1 is ≥ the currently active version's — see `ml.registry.model_registry.maybe_promote`. A bad retrain is saved to disk for inspection but never silently degrades what's being served.
+- **Reproducibility**: Random seed fixed (42), dataset row counts and train/test split sizes recorded in each version's `metadata.json`, classification report and confusion matrix saved alongside the model.
 
 ---
 
@@ -336,7 +336,7 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 | **Unit** | Password hashing, JWT issue/verify/expiry/tamper-detection | 🟢 16 tests passing |
 | **API** | Register, login, duplicate email, wrong password, `/me`, logout, auth guarding | 🟢 Covered |
 | **Integration** | CSV upload → parse → validate → MongoDB → list/query API, end-to-end via TestClient | 🟢 21 tests passing |
-| **ML** | Model loading, prediction schema, no NaN outputs, feature compatibility | ⚪ Planned |
+| **ML** | Model loading, prediction schema, no NaN outputs, feature schema compatibility, promotion guardrail | 🟢 8 tests passing (`ml/tests/`) |
 
 ---
 
@@ -373,7 +373,7 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 | 1 | Architecture + Repository Setup | 🟢 Complete |
 | 2 | Authentication + Database | 🟢 Complete |
 | 3 | Transaction Import | 🟢 Complete |
-| 4 | Categorization ML | ⚪ Planned |
+| 4 | Categorization ML | 🟢 Complete |
 | 5 | Anomaly Detection | ⚪ Planned |
 | 6 | Recurring Payments | ⚪ Planned |
 | 7 | Forecasting | ⚪ Planned |
@@ -400,6 +400,18 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 - `TransactionRepository` / `TransactionImportRepository` — no raw queries in routes
 - 21 new passing tests covering: successful import, duplicate rejection, non-CSV rejection, partial imports with row errors, debit/credit-column and amount+sign-inferred formats, missing required columns, per-user data isolation, and auth guarding
 - **Not yet implemented:** transaction categorization is a placeholder (`category: "Uncategorized"` on every row) — real ML categorization is Phase 4
+
+**Phase 4 deliverables completed:**
+- Synthetic labeled dataset generator (`ml/datasets/generate_categorization_dataset.py`, `make generate-data`) — 17 default categories (Food, Groceries, Transportation, Travel, Shopping, Entertainment, Bills, Utilities, Healthcare, Education, Rent, Salary, Investment, Transfer, Subscription, Cash Withdrawal, Other), generic merchant names with UPI/POS/reference-number noise so the model generalizes past exact-string matching
+- Shared text preprocessing (`ml/preprocessing/text_preprocessing.py`) used identically at train time and serve time — no train/serve skew
+- `ml/categorization/train.py` — trains and compares TF-IDF + LogisticRegression, LinearSVC, and MultinomialNB; keeps whichever wins on macro-F1 (not accuracy, so rarer categories like "Rent" aren't hidden by "Food"/"Shopping" dominance); logs every candidate to MLflow
+- `ml/categorization/evaluate.py` — standalone evaluation of any saved version against any labeled CSV
+- `ml/categorization/predict.py` — inference-only `TransactionClassifier`, no training code in the serving path; handles both `predict_proba` (LogisticRegression/MultinomialNB) and `decision_function`-only (LinearSVC) models for confidence scoring
+- `ml/registry/model_registry.py` — file-based versioned registry (`models/<model_name>/<version>/`), with a promotion guardrail: a retrain is only promoted to "active" if it's at least as good as production
+- Backend integration: `app/services/categorization_service.py` wraps the `ml` package (works both in Docker, where `docker-compose.yml` already mounted `./ml` and `./models` into the backend container, and in local dev via a `sys.path` fallback); transaction import now assigns real `category` + `category_confidence` per row instead of the Phase 3 placeholder; falls back to `"Uncategorized"` gracefully if no model has been trained yet, rather than erroring
+- `GET /api/v1/ml/models` (registry status), `POST /api/v1/ml/categorize` (on-demand categorization)
+- 8 new `ml/` tests (dataset → train → registry → predict, promotion guardrail, graceful no-model fallback) + 5 new backend tests, run against a **real trained model** (not mocked) confirming end-to-end: `SWIGGY ORDER` → Food, `SALARY CREDIT` → Salary, `UBER RIDE` → Transportation
+- **Honest caveat:** the bundled synthetic dataset has disjoint vocabulary per category, so it trains to 100% accuracy trivially — that number is a pipeline sanity check, not a real-world accuracy claim. Real bank exports will have messier, overlapping vocabulary; swap in real labeled data via `--dataset` for a meaningful evaluation.
 
 ---
 
