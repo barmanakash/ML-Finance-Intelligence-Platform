@@ -54,6 +54,25 @@ class TransactionRepository:
         doc = self._collection.find_one({"_id": ObjectId(transaction_id), "user_id": user_id})
         return self._to_model(doc) if doc else None
 
+    def list_all_for_user(self, user_id: str) -> list[TransactionDocument]:
+        """Fetch a user's complete transaction history, unpaginated.
+
+        Used by anomaly detection, which needs full context (every
+        merchant/category the user has ever transacted with) to compute
+        correct z-score baselines — a paginated page would silently corrupt
+        those statistics.
+        """
+        cursor = self._collection.find({"user_id": user_id})
+        return [self._to_model(doc) for doc in cursor]
+
+    def update_anomaly_fields(self, transaction_id: str, is_anomaly: bool, anomaly_score: float) -> None:
+        if not ObjectId.is_valid(transaction_id):
+            return
+        self._collection.update_one(
+            {"_id": ObjectId(transaction_id)},
+            {"$set": {"is_anomaly": is_anomaly, "anomaly_score": anomaly_score}},
+        )
+
     @staticmethod
     def _to_model(doc: dict[str, Any]) -> TransactionDocument:
         doc = dict(doc)

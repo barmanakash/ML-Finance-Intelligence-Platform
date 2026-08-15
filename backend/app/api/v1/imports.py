@@ -10,6 +10,7 @@ from app.dependencies import get_current_user, get_database
 from app.exceptions import NotFoundError
 from app.models.transaction_import import TransactionImportDocument
 from app.models.user import UserDocument
+from app.repositories.anomaly_repository import AnomalyRepository
 from app.repositories.transaction_import_repository import TransactionImportRepository
 from app.repositories.transaction_repository import TransactionRepository
 from app.schemas.transaction_import import (
@@ -17,6 +18,7 @@ from app.schemas.transaction_import import (
     ImportResponse,
     ImportRowErrorResponse,
 )
+from app.services.anomaly_detection_service import AnomalyDetectionService
 from app.services.transaction_import_service import TransactionImportService
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -25,7 +27,10 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 def get_import_service(
     db: Annotated[Database, Depends(get_database)],
 ) -> TransactionImportService:
-    return TransactionImportService(TransactionRepository(db), TransactionImportRepository(db))
+    anomaly_service = AnomalyDetectionService(TransactionRepository(db), AnomalyRepository(db))
+    return TransactionImportService(
+        TransactionRepository(db), TransactionImportRepository(db), anomaly_service
+    )
 
 
 def _to_response(record: TransactionImportDocument) -> ImportResponse:

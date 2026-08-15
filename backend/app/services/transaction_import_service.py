@@ -7,14 +7,18 @@ scripts/create_indexes.py) as a second line of defense against races.
 """
 
 import hashlib
+import logging
 
 from app.exceptions import ConflictError, ValidationAppError
 from app.models.transaction import TransactionDocument
 from app.models.transaction_import import ImportRowError, TransactionImportDocument
 from app.repositories.transaction_import_repository import TransactionImportRepository
 from app.repositories.transaction_repository import TransactionRepository
+from app.services.anomaly_detection_service import AnomalyDetectionService
 from app.services.categorization_service import categorization_service
 from app.utils.csv_parser import ParsedRow, compute_file_hash, parse_csv
+
+logger = logging.getLogger(__name__)
 
 MAX_STORED_ERRORS = 50
 
@@ -24,9 +28,11 @@ class TransactionImportService:
         self,
         transaction_repo: TransactionRepository,
         import_repo: TransactionImportRepository,
+        anomaly_service: AnomalyDetectionService | None = None,
     ) -> None:
         self._transaction_repo = transaction_repo
         self._import_repo = import_repo
+        self._anomaly_service = anomaly_service
 
     def import_csv(
         self, user_id: str, filename: str, raw_bytes: bytes
@@ -89,6 +95,15 @@ class TransactionImportService:
                 for row, prediction in zip(parse_result.rows, predictions)
             ]
             self._transaction_repo.bulk_create(transactions)
+
+            # Best-effort: a new import can shift what "normal" looks like
+            # for this user, so re-score their full history. A detection
+            # failure must never fail the import itself.
+            if self._anomaly_service is not None:
+                try:
+                    self._anomaly_service.detect_for_user(user_id)
+                except Exception:
+                    logger.exception("Anomaly detection failed after import for user_id=%s", user_id)
 
         return saved_import
 
