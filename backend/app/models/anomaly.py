@@ -13,9 +13,5 @@ class AnomalyDocument(BaseModel):
     transaction_id: str
     anomaly_score: float
     severity: str  # "low" | "medium" | "high"
-    reasons: list[str]
-    amount: float
-    merchant: str | None = None
-    category: str
-    transaction_date: datetime
+    reason: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

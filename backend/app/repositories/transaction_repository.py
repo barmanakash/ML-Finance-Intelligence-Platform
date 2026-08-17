@@ -3,7 +3,7 @@
 from typing import Any
 
 from bson import ObjectId
-from pymongo import DESCENDING
+from pymongo import DESCENDING, UpdateOne
 from pymongo.database import Database
 
 from app.models.transaction import TransactionDocument
@@ -65,13 +65,21 @@ class TransactionRepository:
         cursor = self._collection.find({"user_id": user_id})
         return [self._to_model(doc) for doc in cursor]
 
-    def update_anomaly_fields(self, transaction_id: str, is_anomaly: bool, anomaly_score: float) -> None:
-        if not ObjectId.is_valid(transaction_id):
-            return
-        self._collection.update_one(
-            {"_id": ObjectId(transaction_id)},
-            {"$set": {"is_anomaly": is_anomaly, "anomaly_score": anomaly_score}},
-        )
+    def update_anomaly_flags(self, updates: list[dict[str, Any]]) -> int:
+        """`updates` is a list of
+        {"transaction_id": str, "is_anomaly": bool, "anomaly_score": float}.
+        """
+        if not updates:
+            return 0
+        operations = [
+            UpdateOne(
+                {"_id": ObjectId(u["transaction_id"])},
+                {"$set": {"is_anomaly": u["is_anomaly"], "anomaly_score": u["anomaly_score"]}},
+            )
+            for u in updates
+        ]
+        result = self._collection.bulk_write(operations)
+        return result.modified_count
 
     @staticmethod
     def _to_model(doc: dict[str, Any]) -> TransactionDocument:

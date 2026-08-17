@@ -6,7 +6,7 @@ anomalies, recurring, forecasts, insights, ml) — nothing else needs to change.
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, imports, ml, transactions, users
+from app.api.v1 import anomalies, auth, imports, ml, transactions, users
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
@@ -14,3 +14,4 @@ api_router.include_router(users.router)
 api_router.include_router(imports.router)
 api_router.include_router(transactions.router)
 api_router.include_router(ml.router)
+api_router.include_router(anomalies.router)

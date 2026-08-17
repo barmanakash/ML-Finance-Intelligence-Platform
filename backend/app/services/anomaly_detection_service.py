@@ -1,38 +1,41 @@
-"""Runs anomaly detection over a user's full transaction history.
+"""Wraps ml.anomaly_detection.predict.AnomalyDetector for use inside the
+backend. Anomaly detection is fit fresh per user against their real
+transaction history — see ml/anomaly_detection/predict.py for why there's
+no persisted global model here (unlike categorization).
 
-Re-run after every CSV import (a new transaction can shift what "normal"
-looks like for a merchant/category — see ml.anomaly_detection.features),
-and available on demand via POST /api/v1/anomalies/detect. Scoring always
-recomputes over the complete current history rather than only the newest
-batch, so z-score baselines stay correct as more data arrives; the
-`anomalies` collection is kept in sync via upsert-or-delete per transaction
-(see AnomalyRepository), so re-running detection is idempotent rather than
-accumulating duplicates.
-
-Path/import note: same pattern as CategorizationService — direct import
-works in Docker (docker-compose mounts ./ml -> /app/ml), with a sys.path
-fallback for local dev where `ml/` is a sibling of `backend/`.
+Path note: same import-path handling as categorization_service.py — works
+directly in Docker (docker-compose mounts ./ml -> /app/ml), falls back to
+adding the repo root to sys.path for local (non-Docker) dev.
 """
 
 import logging
 import sys
 from pathlib import Path
 
-import pandas as pd
+logger = logging.getLogger(__name__)
+
+try:
+    from ml.anomaly_detection.predict import MIN_TRANSACTIONS_FOR_DETECTION, AnomalyDetector
+except ImportError:
+    _repo_root = Path(__file__).resolve().parents[3]
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+    from ml.anomaly_detection.predict import (  # noqa: E402
+        MIN_TRANSACTIONS_FOR_DETECTION,
+        AnomalyDetector,
+    )
 
 from app.models.anomaly import AnomalyDocument
 from app.repositories.anomaly_repository import AnomalyRepository
 from app.repositories.transaction_repository import TransactionRepository
 
-logger = logging.getLogger(__name__)
 
-try:
-    from ml.anomaly_detection.predict import AnomalyDetector
-except ImportError:
-    _repo_root = Path(__file__).resolve().parents[3]
-    if str(_repo_root) not in sys.path:
-        sys.path.insert(0, str(_repo_root))
-    from ml.anomaly_detection.predict import AnomalyDetector  # noqa: E402
+def _severity(score: float) -> str:
+    if score >= 0.75:
+        return "high"
+    if score >= 0.5:
+        return "medium"
+    return "low"
 
 
 class AnomalyDetectionService:
@@ -41,61 +44,62 @@ class AnomalyDetectionService:
     ) -> None:
         self._transaction_repo = transaction_repo
         self._anomaly_repo = anomaly_repo
-        try:
-            self._detector: AnomalyDetector | None = AnomalyDetector()
-        except Exception:
-            logger.exception("Failed to load anomaly detection model")
-            self._detector = None
-
-    @property
-    def is_ready(self) -> bool:
-        return self._detector is not None and self._detector.is_ready
-
-    @property
-    def active_version(self) -> int | None:
-        return self._detector.active_version if self._detector else None
+        self._detector = AnomalyDetector()
 
     def detect_for_user(self, user_id: str) -> dict:
-        if not self.is_ready:
-            return {"scored": 0, "anomalies_found": 0, "model_ready": False}
-
         transactions = self._transaction_repo.list_all_for_user(user_id)
-        if not transactions:
-            return {"scored": 0, "anomalies_found": 0, "model_ready": True}
 
-        assert self._detector is not None
-        df = pd.DataFrame(
-            [
-                {
-                    "amount": t.amount,
-                    "category": t.category,
-                    "merchant": t.merchant,
-                    "transaction_date": t.transaction_date,
-                }
-                for t in transactions
-            ]
-        )
-        results = self._detector.score_transactions(df)
+        if len(transactions) < MIN_TRANSACTIONS_FOR_DETECTION:
+            return {
+                "status": "insufficient_data",
+                "message": (
+                    f"Need at least {MIN_TRANSACTIONS_FOR_DETECTION} transactions for "
+                    f"anomaly detection; you have {len(transactions)}."
+                ),
+                "anomalies_found": 0,
+                "transactions_scanned": len(transactions),
+            }
 
-        anomalies_found = 0
+        payload = [
+            {
+                "amount": t.amount,
+                "transaction_date": t.transaction_date,
+                "category": t.category,
+                "merchant": t.merchant,
+                "description": t.description,
+            }
+            for t in transactions
+        ]
+        results = self._detector.detect(payload)
+        assert results is not None  # length already checked above
+
+        flag_updates = []
+        anomaly_docs = []
         for txn, result in zip(transactions, results):
-            self._transaction_repo.update_anomaly_fields(txn.id, result.is_anomaly, result.anomaly_score)
+            flag_updates.append(
+                {
+                    "transaction_id": txn.id,
+                    "is_anomaly": result.is_anomaly,
+                    "anomaly_score": result.anomaly_score,
+                }
+            )
             if result.is_anomaly:
-                anomalies_found += 1
-                self._anomaly_repo.upsert(
+                anomaly_docs.append(
                     AnomalyDocument(
                         user_id=user_id,
                         transaction_id=txn.id,
                         anomaly_score=result.anomaly_score,
-                        severity=result.severity,
-                        reasons=result.reasons,
-                        amount=txn.amount,
-                        merchant=txn.merchant,
-                        category=txn.category,
-                        transaction_date=txn.transaction_date,
+                        severity=_severity(result.anomaly_score),
+                        reason=result.reason,
                     )
                 )
-            else:
-                self._anomaly_repo.delete_for_transaction(txn.id)
 
-        return {"scored": len(transactions), "anomalies_found": anomalies_found, "model_ready": True}
+        self._transaction_repo.update_anomaly_flags(flag_updates)
+        self._anomaly_repo.replace_all_for_user(user_id, anomaly_docs)
+
+        return {
+            "status": "completed",
+            "message": f"Scanned {len(transactions)} transactions, found {len(anomaly_docs)} anomalies.",
+            "anomalies_found": len(anomaly_docs),
+            "transactions_scanned": len(transactions),
+        }

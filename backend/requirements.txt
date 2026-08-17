@@ -11,7 +11,10 @@ prometheus-client>=0.21,<0.22
 
 # Inference-only deps for loading the ml/ package's trained categorization
 # model (joblib pickle + the sklearn Pipeline/TfidfVectorizer classes it
-# deserializes into). Training-only deps (pandas, mlflow) stay in ml/requirements.txt
-# — the backend never trains, only serves.
+# deserializes into), and for the anomaly-detection feature engineering
+# (pandas) + on-demand IsolationForest fitting. Training-only deps for the
+# categorizer (mlflow) stay in ml/requirements.txt — the backend never
+# trains that model, only serves it.
 scikit-learn>=1.5,<1.6
 joblib>=1.4,<2.0
+pandas>=2.2,<3.0

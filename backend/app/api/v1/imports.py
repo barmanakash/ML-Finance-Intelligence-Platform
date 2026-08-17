@@ -55,7 +55,6 @@ def _to_response(record: TransactionImportDocument) -> ImportResponse:
 async def upload_csv(
     current_user: Annotated[UserDocument, Depends(get_current_user)],
     import_service: Annotated[TransactionImportService, Depends(get_import_service)],
-    # file: UploadFile = File(...),
     file: Annotated[UploadFile, File()],
 ) -> ImportResponse:
     settings = get_settings()
