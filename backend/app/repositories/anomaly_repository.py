@@ -14,10 +14,12 @@ class AnomalyRepository:
         self._collection = db["anomalies"]
 
     def replace_all_for_user(self, user_id: str, anomalies: list[AnomalyDocument]) -> int:
-        """A transaction that looked unusual with little history may look
-        normal once more history exists (and vice versa), so each re-scan
-        replaces the user's anomaly records rather than accumulating stale
-        ones from earlier scans.
+        """Wipes this user's previous anomaly records and inserts the
+        freshly recomputed set. Anomaly detection always re-scores a user's
+        *entire* history in one pass (see
+        AnomalyDetectionService.detect_for_user), so the anomalies
+        collection should reflect only the latest scan — otherwise stale
+        records from earlier scans would accumulate forever.
         """
         self._collection.delete_many({"user_id": user_id})
         if not anomalies:
@@ -33,9 +35,7 @@ class AnomalyRepository:
         if severity:
             query["severity"] = severity
         total = self._collection.count_documents(query)
-        cursor = (
-            self._collection.find(query).sort("anomaly_score", DESCENDING).skip(skip).limit(limit)
-        )
+        cursor = self._collection.find(query).sort("created_at", DESCENDING).skip(skip).limit(limit)
         return [self._to_model(d) for d in cursor], total
 
     def get_by_id(self, anomaly_id: str, user_id: str) -> AnomalyDocument | None:

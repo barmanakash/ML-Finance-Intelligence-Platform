@@ -38,13 +38,19 @@ def _severity(score: float) -> str:
     return "low"
 
 
+# Loaded once at process start and reused across requests — sklearn/joblib
+# deserialization isn't cheap enough to redo on every /detect call or CSV
+# import (same rationale as app.services.categorization_service).
+_detector = AnomalyDetector()
+
+
 class AnomalyDetectionService:
     def __init__(
         self, transaction_repo: TransactionRepository, anomaly_repo: AnomalyRepository
     ) -> None:
         self._transaction_repo = transaction_repo
         self._anomaly_repo = anomaly_repo
-        self._detector = AnomalyDetector()
+        self._detector = _detector
 
     def detect_for_user(self, user_id: str) -> dict:
         transactions = self._transaction_repo.list_all_for_user(user_id)

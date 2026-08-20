@@ -1,4 +1,12 @@
-"""MongoDB document schema for the `anomalies` collection."""
+"""MongoDB document schema for the `anomalies` collection.
+
+One document per flagged transaction. The whole collection is replaced
+wholesale for a user each time anomaly detection re-runs (see
+AnomalyRepository.replace_all_for_user and
+app.services.anomaly_detection_service.AnomalyDetectionService) since
+detection always re-scores a user's entire history at once rather than
+incrementally.
+"""
 
 from datetime import UTC, datetime
 

@@ -1,15 +1,18 @@
-"""Synthetic single-user transaction history with injected anomalies, used
-ONLY to evaluate the anomaly-detection pipeline's mechanics (see
-ml/anomaly_detection/evaluate.py). Real anomaly detection at serving time
-never touches this file — it fits on each user's actual transaction history
-on demand (see ml/anomaly_detection/predict.py).
+"""Synthetic transaction-history generator for anomaly detection.
 
-There is no verified-fraud ground truth available for a personal project
-like this, so "injected anomaly" here means a transaction we deliberately
-built with characteristics a human would call unusual (an extreme amount
-spike, or a brand-new/unfamiliar merchant) — not confirmed fraud. Treat the
-resulting precision/recall as a sanity check that the pipeline catches the
-kinds of patterns it's designed to catch, not a real-world accuracy claim.
+Each synthetic user gets a chronological sequence of "normal" transactions
+(small amount variance around a per-merchant baseline) spanning several
+months. A small fraction of transactions are deliberately injected as
+anomalies (large amount spikes on a known merchant, or a brand-new,
+unusually large merchant) so ml/anomaly_detection/evaluate.py has something
+to check precision/recall against.
+
+IsolationForest itself is unsupervised and never sees the
+`is_injected_anomaly` label during training — see
+ml/anomaly_detection/train.py. This label exists purely for evaluation, per
+master-prompt Rule 43: unsupervised anomaly detection has no real-world
+ground truth, so this evaluation is illustrative, not a performance
+guarantee on real bank data.
 
 Usage:
     python -m ml.datasets.generate_anomaly_dataset
@@ -22,82 +25,95 @@ from pathlib import Path
 
 from ml.common.config import DATA_DIR
 
-random.seed(7)
+random.seed(42)
 
-# (category, merchant, normal_amount_low, normal_amount_high)
-NORMAL_PATTERNS = [
-    ("Food", "SWIGGY", 200, 600),
-    ("Food", "ZOMATO", 150, 500),
-    ("Groceries", "BIGBASKET", 800, 2500),
-    ("Transportation", "UBER", 100, 450),
-    ("Shopping", "AMAZON", 300, 3000),
-    ("Utilities", "AIRTEL POSTPAID", 400, 900),
-    ("Entertainment", "NETFLIX SUBSCRIPTION", 500, 650),
-    ("Bills", "ELECTRICITY BILL PAYMENT", 800, 2200),
+# (merchant, category) -> typical amount for that merchant, in the same
+# generic-brand-name style as ml/datasets/generate_categorization_dataset.py.
+MERCHANT_CATEGORY_BASE_AMOUNT: dict[tuple[str, str], float] = {
+    ("SWIGGY", "Food"): 350,
+    ("ZOMATO", "Food"): 400,
+    ("STARBUCKS", "Food"): 250,
+    ("BIGBASKET", "Groceries"): 1500,
+    ("DMART", "Groceries"): 2000,
+    ("UBER", "Transportation"): 200,
+    ("OLA CABS", "Transportation"): 180,
+    ("INDIAN OIL PETROL", "Transportation"): 1000,
+    ("AMAZON", "Shopping"): 1200,
+    ("FLIPKART", "Shopping"): 1000,
+    ("MYNTRA", "Shopping"): 1500,
+    ("NETFLIX SUBSCRIPTION", "Subscription"): 649,
+    ("AIRTEL POSTPAID", "Utilities"): 599,
+    ("ELECTRICITY BILL PAYMENT", "Bills"): 2200,
+    ("HOUSE RENT NEFT", "Rent"): 15000,
+    ("SALARY CREDIT", "Salary"): 65000,
+    ("ZERODHA", "Investment"): 5000,
+    ("APOLLO PHARMACY", "Healthcare"): 450,
+}
+
+# Merchants that never appear in a user's "normal" history — used for the
+# new-merchant-with-large-amount anomaly type.
+NEW_MERCHANT_POOL: list[tuple[str, str]] = [
+    ("UNKNOWN ELECTRONICS STORE", "Shopping"),
+    ("LUXURY WATCH BOUTIQUE", "Shopping"),
+    ("FOREIGN CURRENCY EXCHANGE", "Other"),
 ]
 
-ANOMALY_MERCHANTS = [
-    "UNKNOWN OVERSEAS MERCHANT",
-    "LUXURY WATCH BOUTIQUE",
-    "CASINO PAYMENT GATEWAY",
-]
+TRANSACTIONS_PER_USER = 120
+NUM_USERS = 15
+ANOMALY_RATE = 0.04
 
 
-def generate(output_path: Path, num_normal: int = 150, num_anomalies: int = 12) -> int:
+def generate(output_path: Path) -> int:
     rows = []
-    start_date = datetime(2026, 1, 1)
+    merchants = list(MERCHANT_CATEGORY_BASE_AMOUNT.keys())
 
-    for _ in range(num_normal):
-        category, merchant, lo, hi = random.choice(NORMAL_PATTERNS)
-        amount = round(random.uniform(lo, hi), 2)
-        date = start_date + timedelta(days=random.randint(0, 180))
-        rows.append(
-            {
-                "transaction_date": date.strftime("%Y-%m-%d"),
-                "description": merchant,
-                "merchant": merchant,
-                "category": category,
-                "amount": amount,
-                "is_injected_anomaly": 0,
-            }
-        )
+    for user_idx in range(NUM_USERS):
+        user_id = f"synthetic-user-{user_idx}"
+        current_date = datetime(2025, 1, 1) + timedelta(days=random.randint(0, 30))
 
-    for i in range(num_anomalies):
-        # Two flavors: an extreme amount spike on an otherwise-normal
-        # merchant, or a brand-new/unusual merchant entirely.
-        if i % 2 == 0:
-            category, merchant, _lo, hi = random.choice(NORMAL_PATTERNS)
-            amount = round(hi * random.uniform(8, 20), 2)
-        else:
-            merchant = random.choice(ANOMALY_MERCHANTS)
-            category = "Other"
-            amount = round(random.uniform(15000, 50000), 2)
-        date = start_date + timedelta(days=random.randint(0, 180))
-        rows.append(
-            {
-                "transaction_date": date.strftime("%Y-%m-%d"),
-                "description": merchant,
-                "merchant": merchant,
-                "category": category,
-                "amount": amount,
-                "is_injected_anomaly": 1,
-            }
-        )
+        for _ in range(TRANSACTIONS_PER_USER):
+            current_date += timedelta(days=random.randint(0, 3))
+            is_anomaly = random.random() < ANOMALY_RATE
 
-    random.shuffle(rows)
+            if is_anomaly and random.random() < 0.5:
+                merchant, category = random.choice(NEW_MERCHANT_POOL)
+                amount = round(random.uniform(15000, 60000), 2)
+            elif is_anomaly:
+                merchant, category = random.choice(merchants)
+                base = MERCHANT_CATEGORY_BASE_AMOUNT[(merchant, category)]
+                amount = round(base * random.uniform(6, 12), 2)
+            else:
+                merchant, category = random.choice(merchants)
+                base = MERCHANT_CATEGORY_BASE_AMOUNT[(merchant, category)]
+                amount = round(max(10.0, random.gauss(base, base * 0.15)), 2)
+
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "date": current_date.strftime("%Y-%m-%d"),
+                    "description": merchant,
+                    "merchant": merchant,
+                    "category": category,
+                    "amount": amount,
+                    "is_injected_anomaly": int(is_anomaly),
+                }
+            )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["transaction_date", "description", "merchant", "category", "amount", "is_injected_anomaly"]
     with output_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "user_id", "date", "description", "merchant",
+                "category", "amount", "is_injected_anomaly",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rows)
     return len(rows)
 
 
 if __name__ == "__main__":
-    output = DATA_DIR / "training" / "anomaly_eval_dataset.csv"
+    output = DATA_DIR / "training" / "anomaly_dataset.csv"
     count = generate(output)
-    print(
-        f"Generated {count} synthetic transactions "
-        f"({12} injected anomalies) -> {output}"
-    )
+    print(f"Generated {count} synthetic transactions across {NUM_USERS} users -> {output}")

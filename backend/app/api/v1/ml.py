@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_user
 from app.models.user import UserDocument
+from app.services.anomaly_detection_service import get_anomaly_detector_status
 from app.services.categorization_service import categorization_service
 
 router = APIRouter(prefix="/ml", tags=["ml"])
@@ -34,12 +35,18 @@ class ModelStatusResponse(BaseModel):
 def get_model_status(
     current_user: Annotated[UserDocument, Depends(get_current_user)],
 ) -> list[ModelStatusResponse]:
+    anomaly_ready, anomaly_version = get_anomaly_detector_status()
     return [
         ModelStatusResponse(
             model_name="transaction-classifier",
             is_ready=categorization_service.is_ready,
             active_version=categorization_service.active_version,
-        )
+        ),
+        ModelStatusResponse(
+            model_name="anomaly-detector",
+            is_ready=anomaly_ready,
+            active_version=anomaly_version,
+        ),
     ]
 
 
