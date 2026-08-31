@@ -1,4 +1,4 @@
-"""End-to-end anomaly-detection tests: dataset -> train -> registry -> predict.
+"""End-to-end anomaly-detection tests: dataset -> train -> registry -> detect.
 
 Uses a small synthetic dataset (fewer users/transactions than the real
 generator, for test speed) with the same generation logic and a
@@ -58,6 +58,19 @@ def small_anomaly_dataset(tmp_path):
     return path
 
 
+def _make_history(n: int, base_amount: float = 400.0, merchant: str = "SWIGGY", category: str = "Food") -> list[dict]:
+    start = datetime(2026, 1, 1)
+    return [
+        {
+            "amount": base_amount + (i % 5),
+            "transaction_date": start + timedelta(days=i),
+            "category": category,
+            "merchant": merchant,
+        }
+        for i in range(n)
+    ]
+
+
 def test_train_produces_valid_metrics_and_promotes_first_version(tmp_models_dir, small_anomaly_dataset):
     summary = train(small_anomaly_dataset)
 
@@ -69,64 +82,47 @@ def test_train_produces_valid_metrics_and_promotes_first_version(tmp_models_dir,
     assert model_registry.get_active_version(MODEL_NAME) == 1
 
 
-def test_trained_detector_loads_and_scores(tmp_models_dir, small_anomaly_dataset):
+def test_detector_returns_none_below_minimum_history(tmp_models_dir, small_anomaly_dataset):
     train(small_anomaly_dataset)
-
     detector = predict_module.AnomalyDetector()
     assert detector.is_ready
+
+    short_history = _make_history(predict_module.MIN_TRANSACTIONS_FOR_DETECTION - 1)
+    assert detector.detect(short_history) is None
+
+
+def test_detector_scores_full_history_and_preserves_order(tmp_models_dir, small_anomaly_dataset):
+    train(small_anomaly_dataset)
+    detector = predict_module.AnomalyDetector()
     assert detector.active_version == 1
 
-    prior = [{"amount": 400, "category": "Food", "merchant": "SWIGGY"} for _ in range(10)]
-    result = detector.score(
-        amount=4500,
-        category="Food",
-        merchant="SWIGGY",
-        transaction_date=datetime(2026, 3, 1),
-        prior_transactions=prior,
+    history = _make_history(30)
+    # Inject one obvious anomaly: a brand-new merchant with a huge amount.
+    history.append(
+        {
+            "amount": 50000,
+            "transaction_date": datetime(2026, 3, 1),
+            "category": "Shopping",
+            "merchant": "LUXURY WATCH BOUTIQUE",
+        }
     )
-    assert isinstance(result.is_anomaly, bool)
-    assert isinstance(result.anomaly_score, float)
-    if result.is_anomaly:
-        assert result.severity in {"low", "medium", "high"}
-        assert len(result.reasons) > 0
-        assert all(isinstance(r, str) for r in result.reasons)
 
+    results = detector.detect(history)
+    assert results is not None
+    assert len(results) == len(history)  # order preserved, one result per input row
 
-def test_insufficient_history_never_flags(tmp_models_dir, small_anomaly_dataset):
-    train(small_anomaly_dataset)
-    detector = predict_module.AnomalyDetector()
+    flagged = results[-1]  # the injected anomaly is the last element we appended
+    assert flagged.is_anomaly is True
+    assert 0.0 <= flagged.anomaly_score <= 1.0
+    assert flagged.reason is not None
+    assert "has not appeared" in flagged.reason
 
-    result = detector.score(
-        amount=999999,
-        category="Food",
-        merchant="BRAND NEW PLACE",
-        transaction_date=datetime(2026, 3, 1),
-        prior_transactions=[{"amount": 400, "category": "Food", "merchant": "SWIGGY"}],  # only 1 prior txn
-    )
-    assert result.is_anomaly is False
-    assert result.anomaly_score == 0.0
-
-
-def test_new_merchant_large_amount_is_flagged_with_reason(tmp_models_dir, small_anomaly_dataset):
-    train(small_anomaly_dataset)
-    detector = predict_module.AnomalyDetector()
-
-    prior = [{"amount": 400, "category": "Food", "merchant": "SWIGGY"} for _ in range(20)]
-    result = detector.score(
-        amount=50000,
-        category="Shopping",
-        merchant="LUXURY WATCH BOUTIQUE",
-        transaction_date=datetime(2026, 3, 1),
-        prior_transactions=prior,
-    )
-    assert result.is_anomaly is True
-    assert any("has not appeared" in r for r in result.reasons)
+    for result in results[:-1]:
+        assert isinstance(result.is_anomaly, bool)
+        assert 0.0 <= result.anomaly_score <= 1.0
 
 
 def test_detector_gracefully_reports_not_ready_when_no_model_trained(tmp_models_dir):
     detector = predict_module.AnomalyDetector()
     assert not detector.is_ready
-    result = detector.score(100, "Food", "X", datetime(2026, 1, 1), [{"amount": 1} for _ in range(10)])
-    assert result.is_anomaly is False
-    assert result.anomaly_score == 0.0
-    assert result.reasons == []
+    assert detector.detect(_make_history(20)) is None

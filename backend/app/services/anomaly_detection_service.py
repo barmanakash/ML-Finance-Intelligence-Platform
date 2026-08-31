@@ -44,6 +44,13 @@ def _severity(score: float) -> str:
 _detector = AnomalyDetector()
 
 
+def get_anomaly_detector_status() -> tuple[bool, int | None]:
+    """Used by GET /api/v1/ml/models to report registry status without
+    requiring a full AnomalyDetectionService (which needs repositories).
+    """
+    return _detector.is_ready, _detector.active_version
+
+
 class AnomalyDetectionService:
     def __init__(
         self, transaction_repo: TransactionRepository, anomaly_repo: AnomalyRepository
