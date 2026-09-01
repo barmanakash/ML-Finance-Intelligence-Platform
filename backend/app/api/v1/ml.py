@@ -12,6 +12,7 @@ from app.dependencies import get_current_user
 from app.models.user import UserDocument
 from app.services.anomaly_detection_service import get_anomaly_detector_status
 from app.services.categorization_service import categorization_service
+from app.services.forecast_service import get_forecaster_status
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 
@@ -36,6 +37,7 @@ def get_model_status(
     current_user: Annotated[UserDocument, Depends(get_current_user)],
 ) -> list[ModelStatusResponse]:
     anomaly_ready, anomaly_version = get_anomaly_detector_status()
+    forecaster_ready, forecaster_version = get_forecaster_status()
     return [
         ModelStatusResponse(
             model_name="transaction-classifier",
@@ -46,6 +48,11 @@ def get_model_status(
             model_name="anomaly-detector",
             is_ready=anomaly_ready,
             active_version=anomaly_version,
+        ),
+        ModelStatusResponse(
+            model_name="expense-forecaster",
+            is_ready=forecaster_ready,
+            active_version=forecaster_version,
         ),
     ]
 

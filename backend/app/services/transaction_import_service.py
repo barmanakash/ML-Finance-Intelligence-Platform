@@ -16,6 +16,8 @@ from app.repositories.transaction_import_repository import TransactionImportRepo
 from app.repositories.transaction_repository import TransactionRepository
 from app.services.anomaly_detection_service import AnomalyDetectionService
 from app.services.categorization_service import categorization_service
+from app.services.forecast_service import ForecastService
+from app.services.recurring_detection_service import RecurringDetectionService
 from app.utils.csv_parser import ParsedRow, compute_file_hash, parse_csv
 
 logger = logging.getLogger(__name__)
@@ -29,10 +31,14 @@ class TransactionImportService:
         transaction_repo: TransactionRepository,
         import_repo: TransactionImportRepository,
         anomaly_service: AnomalyDetectionService | None = None,
+        recurring_service: RecurringDetectionService | None = None,
+        forecast_service: ForecastService | None = None,
     ) -> None:
         self._transaction_repo = transaction_repo
         self._import_repo = import_repo
         self._anomaly_service = anomaly_service
+        self._recurring_service = recurring_service
+        self._forecast_service = forecast_service
 
     def import_csv(
         self, user_id: str, filename: str, raw_bytes: bytes
@@ -104,6 +110,24 @@ class TransactionImportService:
                     self._anomaly_service.detect_for_user(user_id)
                 except Exception:
                     logger.exception("Anomaly detection failed after import for user_id=%s", user_id)
+
+            # Same best-effort rationale as anomaly detection above: a new
+            # import can add the 3rd+ occurrence that turns a merchant into
+            # a detectable recurring pattern, so re-scan after every import.
+            if self._recurring_service is not None:
+                try:
+                    self._recurring_service.detect_for_user(user_id)
+                except Exception:
+                    logger.exception("Recurring detection failed after import for user_id=%s", user_id)
+
+            # Same best-effort rationale: new transactions shift the daily
+            # spend history every forecast is built from, so refresh all
+            # three forecast periods after every import.
+            if self._forecast_service is not None:
+                try:
+                    self._forecast_service.generate_for_user(user_id)
+                except Exception:
+                    logger.exception("Forecast generation failed after import for user_id=%s", user_id)
 
         return saved_import
 

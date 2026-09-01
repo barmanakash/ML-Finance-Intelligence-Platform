@@ -11,6 +11,8 @@ from app.exceptions import NotFoundError
 from app.models.transaction_import import TransactionImportDocument
 from app.models.user import UserDocument
 from app.repositories.anomaly_repository import AnomalyRepository
+from app.repositories.forecast_repository import ForecastRepository
+from app.repositories.recurring_repository import RecurringRepository
 from app.repositories.transaction_import_repository import TransactionImportRepository
 from app.repositories.transaction_repository import TransactionRepository
 from app.schemas.transaction_import import (
@@ -19,6 +21,8 @@ from app.schemas.transaction_import import (
     ImportRowErrorResponse,
 )
 from app.services.anomaly_detection_service import AnomalyDetectionService
+from app.services.forecast_service import ForecastService
+from app.services.recurring_detection_service import RecurringDetectionService
 from app.services.transaction_import_service import TransactionImportService
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -28,8 +32,14 @@ def get_import_service(
     db: Annotated[Database, Depends(get_database)],
 ) -> TransactionImportService:
     anomaly_service = AnomalyDetectionService(TransactionRepository(db), AnomalyRepository(db))
+    recurring_service = RecurringDetectionService(TransactionRepository(db), RecurringRepository(db))
+    forecast_service = ForecastService(TransactionRepository(db), ForecastRepository(db))
     return TransactionImportService(
-        TransactionRepository(db), TransactionImportRepository(db), anomaly_service
+        TransactionRepository(db),
+        TransactionImportRepository(db),
+        anomaly_service,
+        recurring_service,
+        forecast_service,
     )
 
 

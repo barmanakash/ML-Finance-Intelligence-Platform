@@ -21,9 +21,13 @@ def test_model_status_returns_registry_info(client):
     response = client.get(MODELS_URL, headers=headers)
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["model_name"] == "transaction-classifier"
-    assert isinstance(body[0]["is_ready"], bool)
+    # transaction-classifier (Phase 4), anomaly-detector (Phase 5),
+    # expense-forecaster (Phase 7).
+    assert len(body) == 3
+    model_names = {entry["model_name"] for entry in body}
+    assert model_names == {"transaction-classifier", "anomaly-detector", "expense-forecaster"}
+    for entry in body:
+        assert isinstance(entry["is_ready"], bool)
 
 
 def test_categorize_requires_auth(client):
