@@ -29,6 +29,7 @@ class TransactionRepository:
         category: str | None = None,
         transaction_type: str | None = None,
         import_id: str | None = None,
+        search: str | None = None,
     ) -> tuple[list[TransactionDocument], int]:
         query: dict[str, Any] = {"user_id": user_id}
         if category:
@@ -37,6 +38,18 @@ class TransactionRepository:
             query["transaction_type"] = transaction_type
         if import_id:
             query["import_id"] = import_id
+        if search:
+            # Case-insensitive substring match on description or merchant.
+            # Regex escaped so a search containing regex metacharacters
+            # (e.g. "AMAZON.COM") is treated as a literal string, not a
+            # pattern.
+            import re
+
+            pattern = re.escape(search)
+            query["$or"] = [
+                {"description": {"$regex": pattern, "$options": "i"}},
+                {"merchant": {"$regex": pattern, "$options": "i"}},
+            ]
 
         total = self._collection.count_documents(query)
         cursor = (
@@ -80,6 +93,19 @@ class TransactionRepository:
         ]
         result = self._collection.bulk_write(operations)
         return result.modified_count
+
+    def update_category(self, transaction_id: str, user_id: str, category: str) -> bool:
+        """Manual user recategorization (master-prompt Rule 19: "category
+        editing"). Sets category_confidence to 1.0 since this is now a
+        human-confirmed label, not a model prediction.
+        """
+        if not ObjectId.is_valid(transaction_id):
+            return False
+        result = self._collection.update_one(
+            {"_id": ObjectId(transaction_id), "user_id": user_id},
+            {"$set": {"category": category, "category_confidence": 1.0}},
+        )
+        return result.modified_count > 0
 
     @staticmethod
     def _to_model(doc: dict[str, Any]) -> TransactionDocument:

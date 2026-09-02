@@ -1,87 +1,120 @@
+// Mirrors backend/app/schemas/*.py response shapes exactly — see those
+// files for the source of truth. Kept in one file since this is a small
+// portfolio app, not because everything belongs together long-term.
+
 export interface User {
   id: string;
   email: string;
-  display_name: string;
-  currency: string;
+  full_name: string;
+  is_active: boolean;
   created_at: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
 }
 
 export interface Transaction {
   id: string;
-  user_id: string;
   transaction_date: string;
   description: string;
-  merchant: string;
+  merchant: string | null;
   amount: number;
   currency: string;
-  transaction_type: 'DEBIT' | 'CREDIT';
+  transaction_type: "debit" | "credit";
   category: string;
-  category_confidence: number;
   is_anomaly: boolean;
-  anomaly_score: number;
+  anomaly_score: number | null;
+  import_id: string;
+  reference: string | null;
+  created_at: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface ImportRowError {
+  row: number;
+  message: string;
+}
+
+export interface ImportRecord {
+  id: string;
+  filename: string;
+  status: "completed" | "partial" | "failed";
+  total_rows: number;
+  imported_rows: number;
+  failed_rows: number;
+  errors: ImportRowError[];
+  created_at: string;
 }
 
 export interface Category {
   id: string;
   name: string;
-  type: string;
-  color: string;
+  is_default: boolean;
+  created_at: string;
 }
 
 export interface Anomaly {
   id: string;
   transaction_id: string;
+  amount: number;
+  merchant: string | null;
+  description: string;
+  category: string;
+  transaction_date: string;
   anomaly_score: number;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  reasons: string[];
+  severity: "low" | "medium" | "high";
+  reason: string;
+  created_at: string;
 }
 
-export interface RecurringTransaction {
+export interface RecurringPayment {
   id: string;
   merchant: string;
-  frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+  category: string;
+  frequency: "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
   average_amount: number;
+  occurrences: number;
   confidence: number;
+  last_transaction_date: string;
   next_expected_date: string;
 }
 
 export interface Forecast {
-  id: string;
-  period: string;
-  predicted_amount: number;
-  confidence_lower: number;
-  confidence_upper: number;
-  model_version: string;
+  period: "7d" | "30d" | "90d";
+  method: string;
+  daily_predictions: number[];
+  predicted_total: number;
+  start_date: string;
+  end_date: string;
+  generated_at: string;
 }
 
 export interface Insight {
   id: string;
   type: string;
   message: string;
-  data: any;
-  period: string;
+  created_at: string;
 }
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
+export interface ModelStatus {
+  model_name: string;
+  is_ready: boolean;
+  active_version: number | null;
 }
 
-export interface ApiError {
+export interface ApiErrorBody {
   error: {
     code: string;
     message: string;
-    details: any;
-    request_id: string;
+    request_id?: string;
   };
-}
-
-export interface HealthResponse {
-  status: string;
-  mongodb: string;
-  timestamp: string;
-  version: string;
 }

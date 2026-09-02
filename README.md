@@ -26,18 +26,19 @@ Built with modern engineering practices, this project goes far beyond a tutorial
 - ✅ User authentication (JWT + Argon2id)
 - ✅ CSV transaction import with flexible schema mapping
 - ✅ ML-powered transaction categorization (TF-IDF + LogisticRegression/LinearSVC/MultinomialNB, best-of-3 by macro-F1)
-- ⬜ Anomaly detection with explainable reasons (Isolation Forest)
-- ⬜ Recurring payment detection
-- ⬜ Expense forecasting (7/30/90 days)
-- ⬜ Financial insights engine (deterministic, no LLM)
+- ✅ Anomaly detection with explainable reasons (Isolation Forest)
+- ✅ Recurring payment detection (deterministic interval/amount-regularity scoring)
+- ✅ Expense forecasting (7/30/90 days, best-of-4 classical baselines)
+- ✅ Financial insights engine (deterministic, no LLM)
+- ✅ Category management (system defaults + user-custom)
 - ✅ RESTful API with OpenAPI/Swagger documentation
-- ⬜ Modern React dashboard with dark theme
+- 🟡 Modern React dashboard — skeleton only, not yet wired to the live API (Phase 9)
 - ✅ MLflow experiment tracking & model registry
 - ✅ Model versioning with promotion rules
 - ✅ Prometheus metrics + health/readiness checks
 - ⬜ Grafana dashboards
 - ✅ Docker Compose single-command deployment
-- ✅ Automated testing (unit + API, for auth so far)
+- ✅ Automated testing (unit + API + ML, across all implemented phases)
 - ⬜ CI/CD pipeline (GitHub Actions) — workflow scaffolding exists, not yet wired to this backend
 - ✅ 100% free & open-source — no paid APIs or services
 
@@ -78,23 +79,27 @@ ML code lives in its own `ml/` package, invoked by services — never directly f
 ```mermaid
 flowchart LR
     subgraph Categorization
-        T["Text"] --> TF["TF-IDF"] --> CL["LogisticRegression<br/>SVM / XGBoost"]
+        T["Text"] --> TF["TF-IDF"] --> CL["LogisticRegression<br/>SVM / NaiveBayes"]
     end
     subgraph AnomalyDetection["Anomaly Detection"]
         F["Features"] --> IF["IsolationForest"] --> SC["Score + Explanation"]
     end
+    subgraph Recurring["Recurring Detection"]
+        G["Grouped by merchant"] --> INT["Interval + amount<br/>regularity scoring"]
+    end
     subgraph Forecasting
-        TS["Time Series"] --> EX["Exponential Smoothing<br/>Regression"]
+        TS["Daily spend series"] --> EX["Historical Avg / Moving Avg /<br/>Exp. Smoothing / Linear Regression"]
     end
 ```
 
 | Pipeline | Algorithm | Key Features |
 |---|---|---|
-| **Categorization** | TF-IDF → LogisticRegression (baseline), LinearSVC, XGBoost | Transaction description, merchant, amount bucket |
-| **Anomaly Detection** | Isolation Forest (unsupervised) | Amount deviation, frequency, merchant patterns, temporal features |
-| **Forecasting** | Exponential smoothing, regression | Historical daily/weekly/monthly spending aggregates |
+| **Categorization** | TF-IDF → LogisticRegression (baseline), LinearSVC, MultinomialNB — best-of-3 by macro-F1 | Transaction description text |
+| **Anomaly Detection** | Isolation Forest (unsupervised), fit per user | Amount deviation, frequency, merchant/category patterns, temporal features |
+| **Recurring Detection** | Deterministic statistical grouping (no trained model) | Interval regularity, amount regularity, occurrence count → confidence score |
+| **Forecasting** | Historical average, moving average, exponential smoothing, linear regression — best-of-4 by time-aware holdout MAE | Daily aggregated debit totals per user |
 
-> ML pipelines above are the planned design (Phases 4–7). The `ml/` package currently contains only folder scaffolding — no training/inference code yet.
+> Recurring-payment detection has no MLflow/registry entry by design — it's deterministic grouping logic (master-prompt Rule 6 lists it separately from the three registry-backed pipelines above), same as the insights engine.
 
 ---
 
@@ -167,8 +172,8 @@ ML_Project/
 | **Auth** | PyJWT + pwdlib[argon2] | JWT tokens + Argon2id password hashing |
 | **ML - Classification** | scikit-learn (TF-IDF + LR) | Transaction categorization |
 | **ML - Anomaly** | scikit-learn (IsolationForest) | Unsupervised anomaly detection |
-| **ML - Forecasting** | statsmodels + scikit-learn | Expense prediction |
-| **ML - Boosting** | XGBoost 3.x | Model comparison |
+| **ML - Forecasting** | NumPy + scikit-learn (classical baselines, time-aware selection) | Expense prediction |
+| **ML - Boosting** | XGBoost 3.x | Available for categorization comparison |
 | **Experiment Tracking** | MLflow 3.x | Params, metrics, artifacts, model registry |
 | **Frontend** | Next.js 16 (App Router) | TypeScript, React 19, SSR |
 | **Charts** | Recharts | Responsive, composable charts |
@@ -242,6 +247,30 @@ docker run -d -p 27017:27017 --name finance-mongo mongodb/mongodb-community-serv
 
 ---
 
+## 🎞️ Demo Data & Seeding
+
+To see the dashboard populated immediately instead of starting from an empty account:
+
+```bash
+# 1. Make sure indexes exist and (ideally) models are trained first
+make db-init
+make generate-data   # synthetic labeled datasets for all 3 ML models
+make train           # trains + registers categorization, anomaly, forecasting models
+
+# 2. Create a demo user and import ~180 days of realistic synthetic transactions
+make seed
+```
+
+`make seed` (`scripts/seed.py`) creates a demo user (`demo@example.com` / `DemoPass123!` by default), generates a realistic synthetic bank-export CSV via `scripts/generate_sample_data.py` (salary, rent, subscriptions, day-to-day spending with weekend seasonality, and a couple of injected large one-off "anomalies"), and imports it through the *real* `POST /api/v1/imports` pipeline — so categorization, anomaly detection, recurring detection, forecasting, and insights all populate the same way they would for a real user upload (master-prompt Rule 39). Running `make seed` again reuses the existing demo user and safely no-ops on the duplicate-file check rather than doubling the data.
+
+`scripts/generate_sample_data.py` can also be run standalone to produce multiple users' CSVs under `data/sample/`, e.g. for manually testing the upload flow:
+
+```bash
+python -m scripts.generate_sample_data --users 5 --days 240
+```
+
+---
+
 ## ⚙️ Environment Variables
 
 | Variable | Description | Default |
@@ -277,11 +306,11 @@ Interactive Swagger UI: **http://localhost:8000/docs**
 | `/api/v1/users` | User profile management (`/me`) | 🟢 Implemented |
 | `/api/v1/transactions` | Transaction list + get by id (filtering by category/type/import) | 🟢 Implemented |
 | `/api/v1/imports` | CSV upload & import history | 🟢 Implemented |
-| `/api/v1/categories` | Category management | ⚪ Planned |
-| `/api/v1/anomalies` | Anomaly detection results | ⚪ Planned |
-| `/api/v1/recurring` | Recurring payment detection | ⚪ Planned |
-| `/api/v1/forecasts` | Expense forecasting | ⚪ Planned |
-| `/api/v1/insights` | Financial insights | ⚪ Planned |
+| `/api/v1/categories` | Category management | 🟢 Implemented |
+| `/api/v1/anomalies` | Anomaly detection results | 🟢 Implemented |
+| `/api/v1/recurring` | Recurring payment detection | 🟢 Implemented |
+| `/api/v1/forecasts` | Expense forecasting | 🟢 Implemented |
+| `/api/v1/insights` | Financial insights | 🟢 Implemented |
 | `/api/v1/ml` | Model registry status + on-demand categorization | 🟢 Implemented |
 
 ### Example: Health Check
@@ -300,15 +329,15 @@ curl http://localhost:8000/health
 | `users` | User accounts with hashed passwords | 🟢 In use |
 | `transactions` | Normalized financial transactions | 🟢 In use |
 | `transaction_imports` | Import metadata & audit trail | 🟢 In use |
-| `categories` | System + user-custom categories | ⚪ Planned |
-| `anomalies` | Detected anomaly records with explanations | ⚪ Planned |
-| `recurring_transactions` | Detected recurring payments | ⚪ Planned |
-| `expense_forecasts` | Forecasted spending by period | ⚪ Planned |
+| `categories` | System + user-custom categories | 🟢 In use (defaults auto-seeded on startup) |
+| `anomalies` | Detected anomaly records with explanations | 🟢 In use |
+| `recurring_transactions` | Detected recurring payments | 🟢 In use |
+| `expense_forecasts` | Forecasted spending by period | 🟢 In use |
 | `ml_models` | Model registry metadata | 🟢 In use (file-based registry under `models/`, mirrored to MLflow) |
-| `insights` | Generated financial insights | ⚪ Planned |
-| `audit_logs` | Security/action audit trail (TTL: 90 days) | ⚪ Planned |
+| `insights` | Generated financial insights | 🟢 In use |
+| `audit_logs` | Security/action audit trail (TTL: 90 days) | ⚪ Planned — index exists, no writer yet |
 
-All collections have purpose-designed indexes defined in `scripts/create_indexes.py` (idempotent, run via `make db-init`), even though the application code for most collections hasn't been built yet.
+All collections have purpose-designed indexes defined in `scripts/create_indexes.py` (idempotent, run via `make db-init`). `audit_logs` is the one collection with an index but no application code writing to it yet.
 
 ---
 
@@ -333,10 +362,12 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 
 | Category | What's Tested | Status |
 |---|---|---|
-| **Unit** | Password hashing, JWT issue/verify/expiry/tamper-detection | 🟢 16 tests passing |
-| **API** | Register, login, duplicate email, wrong password, `/me`, logout, auth guarding | 🟢 Covered |
-| **Integration** | CSV upload → parse → validate → MongoDB → list/query API, end-to-end via TestClient | 🟢 21 tests passing |
-| **ML** | Model loading, prediction schema, no NaN outputs, feature schema compatibility, promotion guardrail | 🟢 8 tests passing (`ml/tests/`) |
+| **Unit** | Password hashing, JWT lifecycle, CSV parsing, categorization service fallback, recurring-detection algorithm, insight-rule thresholds | 🟢 Covered |
+| **API** | Auth, transactions, imports, categories, anomalies, recurring, forecasts, insights — including per-user data isolation and auth-guarding on every route | 🟢 Covered |
+| **Integration** | CSV upload → parse → validate → MongoDB → categorize → detect anomalies → detect recurring → forecast → generate insights, end-to-end via TestClient | 🟢 Covered |
+| **ML** | Dataset → train → registry → predict for all three models; promotion guardrail (won't promote a worse retrain); graceful behavior with no trained model; no-NaN/valid-schema predictions | 🟢 Covered |
+
+> Exact test counts aren't quoted here since they drift with every phase — run `make test` / `make test-ml` for current numbers. Two stale test files from an earlier anomaly-detection draft (`ml/tests/_deprecated_*.py.bak`) were renamed out of pytest's discovery path rather than deleted, since the Filesystem tooling used to build this project can rename but not delete — safe to `git rm` them.
 
 ---
 
@@ -374,14 +405,14 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 | 2 | Authentication + Database | 🟢 Complete |
 | 3 | Transaction Import | 🟢 Complete |
 | 4 | Categorization ML | 🟢 Complete |
-| 5 | Anomaly Detection | ⚪ Planned |
-| 6 | Recurring Payments | ⚪ Planned |
-| 7 | Forecasting | ⚪ Planned |
-| 8 | Insights Engine | ⚪ Planned |
-| 9 | Frontend Dashboard | ⚪ Planned |
-| 10 | MLOps + Observability | ⚪ Planned |
-| 11 | CI/CD + Security | ⚪ Planned |
-| 12 | Production Polish | ⚪ Planned |
+| 5 | Anomaly Detection | 🟢 Complete |
+| 6 | Recurring Payments | 🟢 Complete |
+| 7 | Forecasting | 🟢 Complete |
+| 8 | Insights Engine | 🟢 Complete |
+| 9 | Frontend Dashboard | 🟡 Skeleton only, not wired to the API |
+| 10 | MLOps + Observability | 🟡 MLflow + Prometheus + health checks done; Grafana dashboard pending |
+| 11 | CI/CD + Security | 🟡 Workflow exists, needs backend/ml mypy coverage + rate limiting |
+| 12 | Production Polish | 🟡 Sample data + seed script done; this README pass is part of it |
 
 **Phase 2 deliverables completed:**
 - `users` collection with unique-email index
@@ -412,6 +443,31 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 - `GET /api/v1/ml/models` (registry status), `POST /api/v1/ml/categorize` (on-demand categorization)
 - 8 new `ml/` tests (dataset → train → registry → predict, promotion guardrail, graceful no-model fallback) + 5 new backend tests, run against a **real trained model** (not mocked) confirming end-to-end: `SWIGGY ORDER` → Food, `SALARY CREDIT` → Salary, `UBER RIDE` → Transportation
 - **Honest caveat:** the bundled synthetic dataset has disjoint vocabulary per category, so it trains to 100% accuracy trivially — that number is a pipeline sanity check, not a real-world accuracy claim. Real bank exports will have messier, overlapping vocabulary; swap in real labeled data via `--dataset` for a meaningful evaluation.
+
+**Phase 5 deliverables completed:**
+- `ml/anomaly_detection/{train,evaluate,predict}.py` — Isolation Forest fit *per user* (a ₹5,000 grocery run is normal for one user and anomalous for another), using features from the shared `ml/features/transaction_features.py` module (amount deviation from the user's own category/merchant baselines, merchant novelty, day-of-week/day-of-month)
+- Deterministic, feature-level explanations ("Amount is 4.2x higher than your usual spending in this category") generated from the same features that produced the score — never a canned string
+- `app/services/anomaly_detection_service.py` re-scores a user's *entire* transaction history after every import (best-effort — a scoring failure never fails the import itself) and replaces that user's `anomalies` collection wholesale, since a new transaction can shift what "normal" looks like retroactively
+- `GET /api/v1/anomalies`, `POST /api/v1/anomalies/detect` (manual re-scan), severity buckets (low/medium/high) — clearly labeled as *unusual*, never as confirmed fraud (master-prompt Rule 12)
+
+**Phase 6 deliverables completed:**
+- `app/services/recurring_detection_service.py` — no trained model; groups a user's debit transactions by merchant and classifies the median gap between consecutive charges into weekly/biweekly/monthly/quarterly/yearly buckets
+- Confidence score combines *three* independent signals (interval regularity, amount regularity, occurrence count) specifically so a merchant appearing 3 times at random intervals/amounts doesn't get called "recurring" just because the name matched every time
+- Auto re-scans after every import, same replace-wholesale pattern as anomalies
+- `GET /api/v1/recurring`, `POST /api/v1/recurring/detect`
+
+**Phase 7 deliverables completed:**
+- `ml/forecasting/{methods,metrics,train,evaluate,predict}.py` — four classical baselines (historical average, moving average, exponential smoothing, linear regression) compared via **time-aware holdout** (last 14 days of each synthetic user's history, never seen during forecasting) on MAE/RMSE/MAPE; only the winner is registered
+- Promotion rule adapted for a lower-is-better metric (MAE) without touching the shared registry's higher-is-better comparison used by categorization/anomaly detection
+- Forecasts 7/30/90 days ahead from a user's actual daily debit totals (gap days filled with 0, never skipped); reports `"insufficient_data"` rather than a fabricated number below 14 days of history
+- `GET /api/v1/forecasts`, `GET /api/v1/forecasts/{period}`, `POST /api/v1/forecasts/generate`
+
+**Phase 8 deliverables completed:**
+- `app/services/insights_engine.py` — six deterministic rules (category month-over-month increase, dominant category share, weekend-vs-weekday spending, largest single expense, three-consecutive-months-increasing, recurring payment count), each backed by a documented numeric threshold, not a vague heuristic
+- No external LLM API — every message is built from the same transaction history already fetched for other services
+- `app/api/v1/categories.py` — system-default categories (17, matching the categorization label set) auto-seeded on startup; users can add custom categories but cannot rename/delete defaults
+- `GET /api/v1/insights`, `POST /api/v1/insights/generate`
+- Both wired into the same post-import pipeline as anomalies/recurring/forecasts, run last since insights partly depend on the recurring count
 
 ---
 

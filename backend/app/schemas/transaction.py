@@ -26,3 +26,7 @@ class TransactionListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class TransactionUpdateRequest(BaseModel):
+    category: str

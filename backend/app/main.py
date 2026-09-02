@@ -18,8 +18,10 @@ from starlette.responses import Response
 from app.api.v1.router import api_router
 from app.config import get_settings
 from app.database import mongodb
+from app.dependencies import get_database
 from app.middleware.error_handler import register_exception_handlers
 from app.middleware.logging import RequestLoggingMiddleware
+from app.repositories.category_repository import CategoryRepository
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -35,6 +37,17 @@ REQUEST_LATENCY = Histogram(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     mongodb.connect()
+    # Resolved through the (overridable) get_database dependency rather
+    # than mongodb.get_database() directly, so the test suite's mongomock
+    # override (see tests/conftest.py) applies here too. Wrapped
+    # defensively: a hiccup seeding defaults should never prevent the app
+    # from starting (master-prompt Rule 11 wants sensible defaults to
+    # exist, not a hard dependency on them existing).
+    try:
+        db_getter = app.dependency_overrides.get(get_database, get_database)
+        CategoryRepository(db_getter()).ensure_defaults_seeded()
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to seed default categories on startup")
     yield
     mongodb.disconnect()
 
@@ -77,8 +90,35 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/ready", tags=["system"], summary="Readiness check")
-    def ready() -> dict:
-        return {"ready": mongodb.is_connected()}
+    def ready() -> Response:
+        from app.services.anomaly_detection_service import get_anomaly_detector_status
+        from app.services.categorization_service import categorization_service
+        from app.services.forecast_service import get_forecaster_status
+
+        db_ready = mongodb.is_connected()
+        categorizer_ready = categorization_service.is_ready
+        anomaly_ready, _ = get_anomaly_detector_status()
+        forecaster_ready, _ = get_forecaster_status()
+
+        # The app is "ready" to serve traffic as soon as MongoDB is up —
+        # ML models are reported for visibility (Rule 29: "Health checks
+        # should verify... ML model availability") but a model that hasn't
+        # been trained yet shouldn't make the whole app report unready,
+        # since every ML-backed endpoint already degrades gracefully
+        # (e.g. categorization falls back to "Uncategorized").
+        import json
+
+        body = {
+            "ready": db_ready,
+            "mongodb": db_ready,
+            "models": {
+                "transaction-classifier": categorizer_ready,
+                "anomaly-detector": anomaly_ready,
+                "expense-forecaster": forecaster_ready,
+            },
+        }
+        status_code = 200 if db_ready else 503
+        return Response(json.dumps(body), media_type="application/json", status_code=status_code)
 
     @app.get("/metrics", tags=["system"], summary="Prometheus metrics")
     def metrics() -> Response:

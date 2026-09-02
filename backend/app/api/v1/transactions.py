@@ -1,4 +1,6 @@
-"""GET /api/v1/transactions, GET /api/v1/transactions/{id}."""
+"""GET /api/v1/transactions, GET /api/v1/transactions/{id},
+PATCH /api/v1/transactions/{id} (manual category correction).
+"""
 
 from typing import Annotated
 
@@ -10,7 +12,11 @@ from app.exceptions import NotFoundError
 from app.models.transaction import TransactionDocument
 from app.models.user import UserDocument
 from app.repositories.transaction_repository import TransactionRepository
-from app.schemas.transaction import TransactionListResponse, TransactionResponse
+from app.schemas.transaction import (
+    TransactionListResponse,
+    TransactionResponse,
+    TransactionUpdateRequest,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -42,6 +48,7 @@ def list_transactions(
     category: str | None = Query(None),
     transaction_type: str | None = Query(None, pattern="^(debit|credit)$"),
     import_id: str | None = Query(None),
+    search: str | None = Query(None, description="Case-insensitive search over description/merchant"),
 ) -> TransactionListResponse:
     repo = TransactionRepository(db)
     items, total = repo.list_for_user(
@@ -51,6 +58,7 @@ def list_transactions(
         category=category,
         transaction_type=transaction_type,
         import_id=import_id,
+        search=search,
     )
     return TransactionListResponse(
         items=[_to_response(t) for t in items], total=total, skip=skip, limit=limit
@@ -67,4 +75,24 @@ def get_transaction(
     doc = repo.get_by_id(transaction_id, current_user.id)
     if doc is None:
         raise NotFoundError("Transaction not found")
+    return _to_response(doc)
+
+
+@router.patch(
+    "/{transaction_id}",
+    response_model=TransactionResponse,
+    summary="Manually correct a transaction's category",
+)
+def update_transaction_category(
+    transaction_id: str,
+    payload: TransactionUpdateRequest,
+    current_user: Annotated[UserDocument, Depends(get_current_user)],
+    db: Annotated[Database, Depends(get_database)],
+) -> TransactionResponse:
+    repo = TransactionRepository(db)
+    updated = repo.update_category(transaction_id, current_user.id, payload.category)
+    if not updated:
+        raise NotFoundError("Transaction not found")
+    doc = repo.get_by_id(transaction_id, current_user.id)
+    assert doc is not None
     return _to_response(doc)

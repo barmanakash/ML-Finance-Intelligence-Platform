@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-ml lint format type-check db-init seed generate-data train evaluate mlflow docker-up docker-down docker-logs clean
+.PHONY: help install dev test test-ml lint format type-check db-init seed generate-data generate-sample-data train evaluate mlflow docker-up docker-down docker-logs clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -30,14 +30,23 @@ db-init: ## Initialize database indexes
 seed: ## Seed demo data
 	python scripts/seed.py
 
-generate-data: ## Generate the synthetic categorization training dataset
+generate-data: ## Generate all synthetic ML training datasets (categorization, anomaly, forecasting)
 	python -m ml.datasets.generate_categorization_dataset
+	python -m ml.datasets.generate_anomaly_dataset
+	python -m ml.datasets.generate_forecast_dataset
 
-train: ## Train ML models
+generate-sample-data: ## Generate realistic demo bank-export CSVs (data/sample/)
+	python -m scripts.generate_sample_data
+
+train: ## Train all ML models (categorization, anomaly detection, forecasting)
 	python -m ml.categorization.train
+	python -m ml.anomaly_detection.train
+	python -m ml.forecasting.train
 
-evaluate: ## Evaluate the active ML model
+evaluate: ## Evaluate all active ML models
 	python -m ml.categorization.evaluate
+	python -m ml.anomaly_detection.evaluate
+	python -m ml.forecasting.evaluate
 
 mlflow: ## Open MLflow UI
 	mlflow ui --port 5000
