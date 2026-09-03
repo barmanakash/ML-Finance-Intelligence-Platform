@@ -1,14 +1,32 @@
+"use client";
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { 
   LayoutDashboard, 
   Receipt, 
   PieChart, 
   AlertTriangle, 
   Repeat, 
-  TrendingUp 
+  TrendingUp,
+  Lightbulb,
+  Tag,
 } from 'lucide-react';
 
+const NAV_ITEMS = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/transactions", label: "Transactions", icon: Receipt },
+  { href: "/analytics", label: "Analytics", icon: PieChart },
+  { href: "/anomalies", label: "Anomalies", icon: AlertTriangle },
+  { href: "/recurring", label: "Recurring", icon: Repeat },
+  { href: "/forecast", label: "Forecast", icon: TrendingUp },
+  { href: "/insights", label: "Insights", icon: Lightbulb },
+  { href: "/categories", label: "Categories", icon: Tag },
+];
+
 export function Sidebar() {
+  const pathname = usePathname();
+
   return (
     <aside className="sidebar glass">
       <div className="sidebar-header">
@@ -20,42 +38,14 @@ export function Sidebar() {
       
       <nav className="sidebar-nav">
         <ul className="nav-list">
-          <li className="nav-item">
-            <Link href="/" className="nav-link active">
-              <LayoutDashboard size={20} />
-              <span>Dashboard</span>
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link href="/transactions" className="nav-link">
-              <Receipt size={20} />
-              <span>Transactions</span>
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link href="/analytics" className="nav-link">
-              <PieChart size={20} />
-              <span>Analytics</span>
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link href="/anomalies" className="nav-link">
-              <AlertTriangle size={20} />
-              <span>Anomalies</span>
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link href="/recurring" className="nav-link">
-              <Repeat size={20} />
-              <span>Recurring</span>
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link href="/forecast" className="nav-link">
-              <TrendingUp size={20} />
-              <span>Forecast</span>
-            </Link>
-          </li>
+          {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
+            <li className="nav-item" key={href}>
+              <Link href={href} className={`nav-link ${pathname === href ? "active" : ""}`}>
+                <Icon size={20} />
+                <span>{label}</span>
+              </Link>
+            </li>
+          ))}
         </ul>
       </nav>
     </aside>

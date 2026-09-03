@@ -89,6 +89,24 @@ export const api = {
     list: (params: { skip?: number; limit?: number; category?: string; transaction_type?: string } = {}) =>
       apiClient.get<PaginatedResponse<Transaction>>("/api/v1/transactions", { params }),
     get: (id: string) => apiClient.get<Transaction>(`/api/v1/transactions/${id}`),
+    /** The API caps `limit` at 200 per page, so dashboard/analytics views
+     * that want a broader slice of history page through it here instead
+     * of requesting an over-limit page size (which the server would reject).
+     */
+    listAll: async (maxItems = 1000): Promise<Transaction[]> => {
+      const pageSize = 200;
+      const all: Transaction[] = [];
+      let skip = 0;
+      while (all.length < maxItems) {
+        const { data } = await apiClient.get<PaginatedResponse<Transaction>>("/api/v1/transactions", {
+          params: { skip, limit: pageSize },
+        });
+        all.push(...data.items);
+        if (data.items.length < pageSize || all.length >= data.total) break;
+        skip += pageSize;
+      }
+      return all.slice(0, maxItems);
+    },
   },
   categories: {
     list: () => apiClient.get<{ items: Category[] }>("/api/v1/categories"),

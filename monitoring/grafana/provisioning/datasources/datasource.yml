@@ -1,0 +1,13 @@
+# Auto-provisions Prometheus as Grafana's default datasource on container
+# start, so there's no manual "Add datasource" click-through for a fresh
+# `docker compose up` (master-prompt Rule 30: everything should start with
+# one command).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

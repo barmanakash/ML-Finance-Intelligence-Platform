@@ -1,6 +1,11 @@
-import { Search, Bell, User } from 'lucide-react';
+"use client";
+
+import { Search, LogOut, User as UserIcon } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 
 export function Header() {
+  const { user, logout } = useAuth();
+
   return (
     <header className="header glass">
       <div className="header-search">
@@ -13,13 +18,13 @@ export function Header() {
       </div>
       
       <div className="header-actions">
-        <button className="icon-btn">
-          <Bell size={20} />
-          <span className="badge">3</span>
+        {user && <span className="header-username">{user.full_name}</span>}
+        <button className="icon-btn" onClick={logout} title="Log out">
+          <LogOut size={18} />
         </button>
         <button className="user-menu-btn">
           <div className="avatar">
-            <User size={18} />
+            <UserIcon size={18} />
           </div>
         </button>
       </div>

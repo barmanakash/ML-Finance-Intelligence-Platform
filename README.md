@@ -32,11 +32,10 @@ Built with modern engineering practices, this project goes far beyond a tutorial
 - ✅ Financial insights engine (deterministic, no LLM)
 - ✅ Category management (system defaults + user-custom)
 - ✅ RESTful API with OpenAPI/Swagger documentation
-- 🟡 Modern React dashboard — skeleton only, not yet wired to the live API (Phase 9)
+- ✅ React dashboard wired to the live API — auth, transactions, anomalies, recurring, forecast, insights, categories, analytics
 - ✅ MLflow experiment tracking & model registry
 - ✅ Model versioning with promotion rules
-- ✅ Prometheus metrics + health/readiness checks
-- ⬜ Grafana dashboards
+- ✅ Prometheus metrics + Grafana dashboard + health/readiness checks
 - ✅ Docker Compose single-command deployment
 - ✅ Automated testing (unit + API + ML, across all implemented phases)
 - ⬜ CI/CD pipeline (GitHub Actions) — workflow scaffolding exists, not yet wired to this backend
@@ -374,8 +373,9 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 ## 📊 Monitoring
 
 - **Prometheus**: `/metrics` exposes HTTP request count and latency histograms; scrape config already points at `backend:8000`.
-- **Grafana**: Dashboard provisioning not yet built — service runs, but no pre-built dashboards yet.
-- **Health**: `/health` (liveness, reports MongoDB connectivity) and `/ready` (readiness) endpoints are live.
+- **Grafana**: Auto-provisioned on startup — Prometheus is wired as the default datasource and a starter dashboard ("Finance Intelligence Platform - Overview": backend up/down, request rate, 5xx error rate, p50/p95/p99 latency, requests by endpoint and status code) loads automatically, no manual import needed. Open http://localhost:3001 (admin/admin) after `docker compose up`.
+- **Health**: `/health` (liveness, reports MongoDB connectivity) and `/ready` (readiness, also reports which ML models are trained) endpoints are live.
+- **Known limitation**: only HTTP-level metrics are instrumented today. Master-prompt Rule 28 also asks for ML-prediction-count/latency and CSV-import-count/failure counters — not yet added; the dashboard would need a couple of new panels once those counters exist in `app/main.py` / the ML services.
 
 ---
 
@@ -409,9 +409,9 @@ cd backend && pytest tests/ -v --cov=app --cov-report=term-missing
 | 6 | Recurring Payments | 🟢 Complete |
 | 7 | Forecasting | 🟢 Complete |
 | 8 | Insights Engine | 🟢 Complete |
-| 9 | Frontend Dashboard | 🟡 Skeleton only, not wired to the API |
-| 10 | MLOps + Observability | 🟡 MLflow + Prometheus + health checks done; Grafana dashboard pending |
-| 11 | CI/CD + Security | 🟡 Workflow exists, needs backend/ml mypy coverage + rate limiting |
+| 9 | Frontend Dashboard | 🟢 Wired to the live API — auth, dashboard, transactions, anomalies, recurring, forecast, insights, categories, analytics pages all fetch real data |
+| 10 | MLOps + Observability | 🟢 MLflow + Prometheus + Grafana (auto-provisioned dashboard) + health checks done; ML-specific metrics (prediction/import counters) still pending |
+| 11 | CI/CD + Security | 🟡 CI now actually fails on lint/type/test/build errors (previously masked with `|| echo`), covers backend+ml+frontend; rate limiting still pending |
 | 12 | Production Polish | 🟡 Sample data + seed script done; this README pass is part of it |
 
 **Phase 2 deliverables completed:**
