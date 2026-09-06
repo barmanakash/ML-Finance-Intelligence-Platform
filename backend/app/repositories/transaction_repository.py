@@ -84,15 +84,14 @@ class TransactionRepository:
         """
         if not updates:
             return 0
-        operations = [
-            UpdateOne(
+        updated = 0
+        for u in updates:
+            result = self._collection.update_one(
                 {"_id": ObjectId(u["transaction_id"])},
                 {"$set": {"is_anomaly": u["is_anomaly"], "anomaly_score": u["anomaly_score"]}},
             )
-            for u in updates
-        ]
-        result = self._collection.bulk_write(operations)
-        return result.modified_count
+            updated += int(result.modified_count > 0)
+        return updated
 
     def update_category(self, transaction_id: str, user_id: str, category: str) -> bool:
         """Manual user recategorization (master-prompt Rule 19: "category

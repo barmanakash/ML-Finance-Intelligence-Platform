@@ -12,6 +12,9 @@ import logging
 import sys
 from pathlib import Path
 
+from ml.anomaly_detection.predict import MODEL_NAME
+from ml.registry import model_registry
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -38,17 +41,32 @@ def _severity(score: float) -> str:
     return "low"
 
 
-# Loaded once at process start and reused across requests — sklearn/joblib
-# deserialization isn't cheap enough to redo on every /detect call or CSV
-# import (same rationale as app.services.categorization_service).
-_detector = AnomalyDetector()
+_detector: AnomalyDetector | None = None
+
+
+def _get_detector() -> AnomalyDetector:
+    """Refresh the cached detector whenever the active model version changes.
+
+    The registry and the backend can be used in the same process across a
+    training run, so a long-lived singleton must be reloaded when a new model
+    becomes active. That is exactly the case exercised by the anomaly API
+    tests: the training happens after the service module is imported.
+    """
+
+    global _detector
+
+    active_version = model_registry.get_active_version(MODEL_NAME)
+    if _detector is None or not _detector.is_ready or _detector.active_version != active_version:
+        _detector = AnomalyDetector()
+    return _detector
 
 
 def get_anomaly_detector_status() -> tuple[bool, int | None]:
     """Used by GET /api/v1/ml/models to report registry status without
     requiring a full AnomalyDetectionService (which needs repositories).
     """
-    return _detector.is_ready, _detector.active_version
+    detector = _get_detector()
+    return detector.is_ready, detector.active_version
 
 
 class AnomalyDetectionService:
@@ -57,9 +75,10 @@ class AnomalyDetectionService:
     ) -> None:
         self._transaction_repo = transaction_repo
         self._anomaly_repo = anomaly_repo
-        self._detector = _detector
+        self._detector = _get_detector()
 
     def detect_for_user(self, user_id: str) -> dict:
+        self._detector = _get_detector()
         transactions = self._transaction_repo.list_all_for_user(user_id)
 
         if len(transactions) < MIN_TRANSACTIONS_FOR_DETECTION:

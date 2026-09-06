@@ -72,10 +72,10 @@ def delete_category(
     repo = CategoryRepository(db)
     existing = repo.get_by_id(category_id, current_user.id)
     if existing is None:
-        # Could be a system default (user_id=None never matches get_by_id's
-        # per-user filter) or a category belonging to someone else — either
-        # way it can't be deleted through this endpoint.
-        raise NotFoundError("Category not found, or it is a system default and cannot be deleted")
+        candidate = repo.get_by_id_any_user(category_id)
+        if candidate is not None and candidate.is_default:
+            raise ForbiddenError("System default categories cannot be deleted")
+        raise NotFoundError("Category not found")
     if existing.is_default:
         raise ForbiddenError("System default categories cannot be deleted")
     repo.delete_custom(category_id, current_user.id)

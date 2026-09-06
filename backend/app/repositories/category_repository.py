@@ -55,6 +55,12 @@ class CategoryRepository:
         doc = self._collection.find_one({"_id": ObjectId(category_id), "user_id": user_id})
         return self._to_model(doc) if doc else None
 
+    def get_by_id_any_user(self, category_id: str) -> CategoryDocument | None:
+        if not ObjectId.is_valid(category_id):
+            return None
+        doc = self._collection.find_one({"_id": ObjectId(category_id)})
+        return self._to_model(doc) if doc else None
+
     def delete_custom(self, category_id: str, user_id: str) -> bool:
         """Only deletes a category owned by this user — system defaults
         (user_id=None) never match this filter, so they can't be deleted

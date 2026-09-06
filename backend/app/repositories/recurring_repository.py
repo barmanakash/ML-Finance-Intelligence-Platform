@@ -1,5 +1,6 @@
 """Data-access layer for the `recurring_transactions` collection."""
 
+from datetime import date, datetime
 from typing import Any
 
 from bson import ObjectId
@@ -25,7 +26,19 @@ class RecurringRepository:
         self._collection.delete_many({"user_id": user_id})
         if not patterns:
             return 0
-        payload = [p.model_dump(by_alias=True, exclude={"id"}) for p in patterns]
+
+        payload: list[dict[str, Any]] = []
+        for pattern in patterns:
+            doc = pattern.model_dump(by_alias=True, exclude={"id"})
+            for field in ("last_transaction_date", "next_expected_date"):
+                value = doc.get(field)
+                if isinstance(value, date) and not isinstance(value, datetime):
+                    doc[field] = value.isoformat()
+            created_at = doc.get("created_at")
+            if isinstance(created_at, datetime):
+                doc["created_at"] = created_at.isoformat()
+            payload.append(doc)
+
         result = self._collection.insert_many(payload)
         return len(result.inserted_ids)
 

@@ -26,6 +26,8 @@ def client(test_db, monkeypatch):
     monkeypatch.setattr(mongodb, "connect", lambda: None)
     monkeypatch.setattr(mongodb, "disconnect", lambda: None)
     monkeypatch.setattr(mongodb, "is_connected", lambda: True)
+    app.state.rate_limit_enabled = False
+    app.state.rate_limit_bucket = {}
 
     app.dependency_overrides[get_database] = lambda: test_db
     with TestClient(app) as test_client:

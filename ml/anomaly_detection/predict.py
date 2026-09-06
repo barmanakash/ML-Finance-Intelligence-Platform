@@ -34,11 +34,12 @@ class AnomalyResult:
 
 
 class AnomalyDetector:
-    def __init__(self) -> None:
+    def __init__(self, contamination: float | None = None) -> None:
         bundle, metadata = model_registry.load_active_pipeline(MODEL_NAME)
         self._scaler = bundle["scaler"] if bundle else None
         self._model = bundle["model"] if bundle else None
         self._metadata = metadata
+        self._contamination = contamination
 
     @property
     def is_ready(self) -> bool:
@@ -94,7 +95,7 @@ class AnomalyDetector:
             raw = float(raw_scores[pos_in_order])
             normalized = (max_score - raw) / spread if spread > 1e-9 else 0.0
             is_anomaly = bool(predictions[pos_in_order] == -1)
-            reason = None
+            reason = ""
             if is_anomaly:
                 t = transactions[original_index]
                 reason = self._explain(

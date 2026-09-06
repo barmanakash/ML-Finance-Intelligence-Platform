@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.api.v1.router import api_router
 from app.config import get_settings
@@ -70,6 +70,43 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(api_router)
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if not getattr(app.state, "rate_limit_enabled", settings.rate_limit_enabled):
+            return await call_next(request)
+
+        client_ip = request.headers.get("x-forwarded-for")
+        if client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
+
+        window_seconds = getattr(app.state, "rate_limit_window_seconds", settings.rate_limit_window_seconds)
+        max_requests = getattr(app.state, "rate_limit_max_requests", settings.rate_limit_max_requests)
+        bucket = getattr(app.state, "rate_limit_bucket", {})
+        app.state.rate_limit_bucket = bucket
+
+        now = time.monotonic()
+        requests = bucket.setdefault(client_ip, [])
+        requests[:] = [ts for ts in requests if now - ts < window_seconds]
+
+        if len(requests) >= max_requests:
+            retry_after = max(1, int(window_seconds - (now - requests[0])))
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "code": "RATE_LIMITED",
+                        "message": "Too many requests. Please try again later.",
+                        "request_id": getattr(request.state, "request_id", None),
+                    }
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        requests.append(now)
+        return await call_next(request)
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]

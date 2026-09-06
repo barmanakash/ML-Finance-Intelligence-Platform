@@ -2,6 +2,8 @@ REGISTER_URL = "/api/v1/auth/register"
 LOGIN_URL = "/api/v1/auth/login"
 ME_URL = "/api/v1/users/me"
 
+from app.main import app
+
 
 def _register(
     client,
@@ -87,6 +89,21 @@ def test_me_rejects_garbage_token(client):
         headers={"Authorization": "Bearer not-a-real-token"},
     )
     assert response.status_code == 401
+
+
+def test_me_rate_limits_after_burst(client, monkeypatch):
+    monkeypatch.setattr(app.state, "rate_limit_enabled", True, raising=False)
+    monkeypatch.setattr(app.state, "rate_limit_max_requests", 2, raising=False)
+    monkeypatch.setattr(app.state, "rate_limit_window_seconds", 60, raising=False)
+    app.state.rate_limit_bucket = {}
+
+    for _ in range(2):
+        response = client.get(ME_URL)
+        assert response.status_code == 401
+
+    response = client.get(ME_URL)
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "RATE_LIMITED"
 
 
 def test_me_returns_current_user(client):
