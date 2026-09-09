@@ -41,7 +41,6 @@ export default function TransactionsPage() {
   useEffect(() => {
     setTransactions(null);
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skip, categoryFilter, typeFilter]);
 
   async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
